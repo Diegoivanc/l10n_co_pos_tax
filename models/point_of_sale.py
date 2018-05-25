@@ -36,6 +36,12 @@ from odoo.osv import osv
 
 _logger = logging.getLogger(__name__)
 
+"""class PosAccountMoveLine(models.Model):
+    _name = "account.move.line"
+    _inherit = "account.move.line"
+
+    base_tax = fields.Float('Base Tax')"""
+
 
 class PosOrder(models.Model):
     _name = "pos.order"
@@ -43,15 +49,14 @@ class PosOrder(models.Model):
 
     company_taxes = fields.One2many('pos.order.line.company_tax', 'order_id', 'Order Company Taxes')
     type = fields.Selection([
-        ('out_invoice','Customer Invoice'),
-        ('out_refund','Customer Refund')
+        ('out_invoice', 'Customer Invoice'),
+        ('out_refund', 'Customer Refund')
     ], readonly=True, default='out_invoice')
     resolution_number = fields.Char('Resolution number in order')
     resolution_date = fields.Date()
     resolution_date_to = fields.Date()
     resolution_number_from = fields.Integer("")
     resolution_number_to = fields.Integer("")
-
 
     def _prepare_tax_line_vals(self, tax):
         return {
@@ -75,20 +80,22 @@ class PosOrder(models.Model):
             if order.company_id.partner_id.property_account_position_id:
                 fp = self.env['account.fiscal.position'].search(
                     [('id', '=', order.company_id.partner_id.property_account_position_id.id)])
-                
+
                 fp.ensure_one()
-                
+
                 for taxs in fp.tax_ids_invoice:
-                    sql_diarios = "Select * from account_journal_taxes_ids_rel slt where tax_id = "+ str(taxs.id)+"" 
-                    self.env.cr.execute( sql_diarios )
+                    sql_diarios = "Select * from account_journal_taxes_ids_rel slt where tax_id = " + str(taxs.id) + ""
+                    self.env.cr.execute(sql_diarios)
                     records = self.env.cr.dictfetchall()
 
                     if not records:
                         tax_ids = self.env['account.tax'].browse(taxs.tax_id.id)
-                        
+
                         if tax_ids.type_tax_use == tipo_factura:
 
-                            taxes = tax_ids.compute_all(order.amount_total - order.amount_tax, order.pricelist_id.currency_id, partner=order.partner_id)['taxes']
+                            taxes = \
+                            tax_ids.compute_all(order.amount_total - order.amount_tax, order.pricelist_id.currency_id,
+                                                partner=order.partner_id)['taxes']
                             for tax in taxes:
                                 val = self._prepare_tax_line_vals(tax)
                                 key = self.env['account.tax'].browse(tax['id']).get_grouping_key(val)
@@ -97,20 +104,23 @@ class PosOrder(models.Model):
                                     tax_grouped[key] = val
                                 else:
                                     tax_grouped[key]['amount'] += val['amount']
-                        
-                    else:        
+
+                    else:
                         for loc in records:
                             if loc.get('journal_id') == order.sale_journal.id:
-                                ql_tax_id = "Select tax_id from account_fiscal_position_base_tax slt where id = "+ str(loc.get('tax_id'))+"" 
-                                self.env.cr.execute( ql_tax_id )
+                                ql_tax_id = "Select tax_id from account_fiscal_position_base_tax slt where id = " + str(
+                                    loc.get('tax_id')) + ""
+                                self.env.cr.execute(ql_tax_id)
                                 records = self.env.cr.dictfetchall()
                                 fp_tax_ids = [tax.get('tax_id') for tax in records]
                                 tax_ids = self.env['account.tax'].browse(fp_tax_ids)
                                 if tax_ids.type_tax_use == tipo_factura:
-                                    taxes = tax_ids.compute_all(order.amount_total - order.amount_tax, order.pricelist_id.currency_id, partner=order.partner_id)['taxes']
-                            
+                                    taxes = tax_ids.compute_all(order.amount_total - order.amount_tax,
+                                                                order.pricelist_id.currency_id,
+                                                                partner=order.partner_id)['taxes']
+
                                     for tax in taxes:
-                                    
+
                                         val = self._prepare_tax_line_vals(tax)
                                         key = self.env['account.tax'].browse(tax['id']).get_grouping_key(val)
 
@@ -120,9 +130,8 @@ class PosOrder(models.Model):
                                             tax_grouped[key]['amount'] += val['amount']
             else:
                 raise UserError(_('Debe definir una posicion fiscal para el partner asociado a la compañía actual'))
-        
+
         return tax_grouped
-       
 
     @api.multi
     def _compute_company_taxes(self):
@@ -159,13 +168,13 @@ class PosOrder(models.Model):
             if 'REFUND' not in values['name'] and order.amount_total > 0:
                 values['name'] = session.config_id.sequence_id._next()
                 sequence = self.env['ir.sequence.dian_resolution'] \
-                               .search([('sequence_id','=',session.config_id.sequence_id.id),
-                                        ('active_resolution','=',True)], limit=1)
+                    .search([('sequence_id', '=', session.config_id.sequence_id.id),
+                             ('active_resolution', '=', True)], limit=1)
             else:
                 values['name'] = session.config_id.sequence_refund_id._next()
                 sequence = self.env['ir.sequence.dian_resolution'] \
-                               .search([('sequence_id','=',session.config_id.sequence_refund_id.id),
-                                        ('active_resolution','=',True)], limit=1)
+                    .search([('sequence_id', '=', session.config_id.sequence_refund_id.id),
+                             ('active_resolution', '=', True)], limit=1)
             if sequence.exists():
                 order.write({
                     'resolution_number': sequence['resolution_number'],
@@ -184,7 +193,7 @@ class PosOrder(models.Model):
             _type = 'out_invoice'
         order.write({
             'name': values['name'],
-            'type' : _type
+            'type': _type
         })
         if not order.company_taxes:
             order._compute_company_taxes()
@@ -218,16 +227,16 @@ class PosOrder(models.Model):
     def _create_account_move_line(self, session=None, move_id=None):
         res = super(PosOrder, self)._create_account_move_line(session, move_id)
 
-        move = self.env['account.move'].sudo().browse(move_id)
+        move = self.env['account.move'].sudo().browse(move_id.id)
         move.ensure_one()
 
         all_lines = []
         items = {}
         taxes = {}
         for order in self:
-            
+
             for line in order.company_taxes:
-                
+
                 key = (order.type, order.partner_id.id or "", line.tax_id.id)
                 val = self._prepare_tax_vals(line, order.partner_id)
 
@@ -235,14 +244,14 @@ class PosOrder(models.Model):
                     taxes[key] = val
                 else:
                     taxes[key]['amount'] += val['amount']
-                    #taxes[key]['subtotal'] += val['subtotal']
-                   
+                    # taxes[key]['subtotal'] += val['subtotal']
+
             if order.company_id.anglo_saxon_accounting:
                 for i_line in order.lines:
                     anglo_saxon_lines = order._anglo_saxon_sale_move_lines(i_line)
                     all_lines.extend(anglo_saxon_lines)
-                
-        for key,val in taxes.iteritems():
+
+        for key, val in taxes.iteritems():
             type, dummy, dummy = key
             if type in 'out_refund':
                 name = 'Refund ' + val['name']
@@ -256,29 +265,35 @@ class PosOrder(models.Model):
                 'name': name[:64],
                 'quantity': 1,
                 'account_id': val['account_id'],
-                'credit': ((val['amount']>0) and val['amount']) or 0.0,
-                'debit': ((val['amount']<0) and -val['amount']) or 0.0,
+                'credit': ((val['amount'] > 0) and val['amount']) or 0.0,
+                'debit': ((val['amount'] < 0) and -val['amount']) or 0.0,
                 'tax_line_id': val['tax_id'],
-                'partner_id': val['partner_id'] and self.env["res.partner"]._find_accounting_partner(val['partner_id']).id or False,
-                'move_id': move_id
+                'partner_id': val['partner_id'] and self.env["res.partner"]._find_accounting_partner(
+                    val['partner_id']).id or False,
+                'move_id': move_id.id
             },
-            {
-                'name': name[:64],
-                'quantity': 1,
-                'account_id': counter_account_id,
-                'credit': ((val['amount']<0) and -val['amount']) or 0.0,
-                'debit': ((val['amount']>0) and val['amount']) or 0.0,
-                'tax_line_id': val['tax_id'],
-                'partner_id': val['partner_id'] and self.env["res.partner"]._find_accounting_partner(val['partner_id']).id or False,
-                'move_id': move_id
-            }]
+                {
+                    'name': name[:64],
+                    'quantity': 1,
+                    'account_id': counter_account_id,
+                    'credit': ((val['amount'] < 0) and -val['amount']) or 0.0,
+                    'debit': ((val['amount'] > 0) and val['amount']) or 0.0,
+                    'tax_line_id': val['tax_id'],
+                    'partner_id': val['partner_id'] and self.env["res.partner"]._find_accounting_partner(
+                        val['partner_id']).id or False,
+                    'move_id': move_id.id
+                }]
             items[key] = values
 
-        map(lambda x: map (lambda y: all_lines.append((0, 0, y)), x), items.values())
+        map(lambda x: map(lambda y: all_lines.append((0, 0, y)), x), items.values())
+        _logger.info('verificando')
+        _logger.info(move_id.id)
+        _logger.info(all_lines)
+        _logger.info(move)
 
         if move_id:
             move.with_context(dont_create_taxes=True).write({'line_ids': all_lines})
-            move.post()
+            #move.post()
         return res
 
     @api.model
@@ -291,7 +306,7 @@ class PosOrder(models.Model):
         order = i_line.order_id
         company_currency = order.company_id.currency_id.id
 
-        if i_line.product_id.type in ('product', 'consu'): #and i_line.product_id.valuation == 'real_time':
+        if i_line.product_id.type in ('product', 'consu'):  # and i_line.product_id.valuation == 'real_time':
             fpos = i_line.order_id.fiscal_position_id
             accounts = i_line.product_id.product_tmpl_id.get_product_accounts(fiscal_pos=fpos)
             # debit account dacc will be the output account
@@ -300,30 +315,31 @@ class PosOrder(models.Model):
             # credit account cacc will be the expense account
             cacc = accounts['expense'].id
             if dacc and cacc:
-
                 price_unit = i_line._get_anglo_saxon_price_unit() or 0.0
                 price = self.env['pos.order.line']._get_price(order, company_currency, i_line, price_unit)
                 return [
                     (0, 0, {
                         'name': i_line.name[:64],
-                        'debit': ((price<0) and -price) or 0.0,
-                        'credit': ((price>0) and price) or 0.0,
+                        'debit': ((price < 0) and -price) or 0.0,
+                        'credit': ((price > 0) and price) or 0.0,
                         'account_id': dacc,
                         'quantity': i_line.qty,
                         'product_id': i_line.product_id.id,
                         'product_uom_id': i_line.product_id.uom_id.id,
-                        'partner_id': order.partner_id and self.env["res.partner"]._find_accounting_partner(order.partner_id).id or False,
+                        'partner_id': order.partner_id and self.env["res.partner"]._find_accounting_partner(
+                            order.partner_id).id or False,
                         'move_id': order.account_move.id
                     }),
                     (0, 0, {
                         'name': i_line.name[:64],
-                        'debit': ((price>0) and price) or 0.0,
-                        'credit': ((price<0) and -price) or 0.0,
+                        'debit': ((price > 0) and price) or 0.0,
+                        'credit': ((price < 0) and -price) or 0.0,
                         'account_id': cacc,
                         'quantity': i_line.qty,
                         'product_id': i_line.product_id.id,
                         'product_uom_id': i_line.product_id.uom_id.id,
-                        'partner_id': order.partner_id and self.env["res.partner"]._find_accounting_partner(order.partner_id).id or False,
+                        'partner_id': order.partner_id and self.env["res.partner"]._find_accounting_partner(
+                            order.partner_id).id or False,
                         'move_id': order.account_move.id
                     }),
                 ]
@@ -336,17 +352,17 @@ class PosOrderLine(models.Model):
     price_subtotal_line = fields.Float('Subtotal', compute='_compute_amount_line_all', digits=0, store=True)
 
     @api.model
-    def create(self, values):   
+    def create(self, values):
 
         if 'order_id' in values:
             pos_order = self.env['pos.order']
-            order_id = pos_order.browse( values.get('order_id') )
+            order_id = pos_order.browse(values.get('order_id'))
 
             if order_id:
                 if order_id.session_id:
                     if order_id.session_id.config_id:
                         values.update({
-                            'name' : order_id.session_id.config_id.name
+                            'name': order_id.session_id.config_id.name
                         })
 
         res = super(PosOrderLine, self).create(values)
@@ -364,26 +380,29 @@ class PosOrderLine(models.Model):
             price = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
             line.price_subtotal = line.price_subtotal_incl = price * line.qty
             if taxes:
-                taxes = taxes.compute_all(price, currency, line.qty, product=line.product_id, partner=line.order_id.partner_id or False)
+                taxes = taxes.compute_all(price, currency, line.qty, product=line.product_id,
+                                          partner=line.order_id.partner_id or False)
                 line.price_subtotal = taxes['total_excluded']
                 line.price_subtotal_incl = taxes['total_included']
 
             line.price_subtotal = currency.round(line.price_subtotal)
             line.price_subtotal_incl = currency.round(line.price_subtotal_incl)
-            line.price_subtotal_line =  line.price_subtotal
+            line.price_subtotal_line = line.price_subtotal
 
     def _get_anglo_saxon_price_unit(self):
         self.ensure_one()
         if self.order_id.picking_id:
-            move = self.order_id.picking_id.move_lines.search([('picking_id','=',self.order_id.picking_id.id),
-                                                               ('product_id','=',self.product_id.id)])
+            move = self.order_id.picking_id.move_lines.search([('picking_id', '=', self.order_id.picking_id.id),
+                                                               ('product_id', '=', self.product_id.id)])
             return move[0].price_unit
 
     @api.model
     def _get_price(self, order, company_currency, i_line, price_unit):
         cur_obj = self.env['res.currency']
         if order.company_id.currency_id.id != company_currency:
-            price = cur_obj.with_context(date=order.create_date).compute(company_currency, order.company_id.currency_id.id, price_unit * i_line.qty)
+            price = cur_obj.with_context(date=order.create_date).compute(company_currency,
+                                                                         order.company_id.currency_id.id,
+                                                                         price_unit * i_line.qty)
         else:
             price = price_unit * i_line.qty
         return round(price, order.company_id.currency_id.decimal_places)
@@ -395,7 +414,7 @@ class PosOrderLineCompanyTaxes(models.Model):
 
     name = fields.Char(string="Tax description", required=True)
     account_id = fields.Many2one('account.account', string='Account',
-        required=True)
+                                 required=True)
     account_analytic_id = fields.Many2one('account.account', string='Analytic Account')
     amount = fields.Float("Amount")
     order_id = fields.Many2one('pos.order', string='Order', ondelete='cascade', index=True)
@@ -413,7 +432,8 @@ class PosConfig(models.Model):
             if pos.sequence_id.use_dian_control:
                 remaining_numbers = pos.sequence_id.remaining_numbers
                 remaining_days = pos.sequence_id.remaining_days
-                dian_resolution = pos.env['ir.sequence.dian_resolution'].search([('sequence_id','=',pos.sequence_id.id),('active_resolution','=',True)])
+                dian_resolution = pos.env['ir.sequence.dian_resolution'].search(
+                    [('sequence_id', '=', pos.sequence_id.id), ('active_resolution', '=', True)])
                 today = datetime.strptime(fields.Date.context_today(pos), '%Y-%m-%d')
 
                 if len(dian_resolution) > 0:
@@ -424,17 +444,18 @@ class PosConfig(models.Model):
                     pos.not_has_valid_dian = False
                     spent = False
 
-                    if dian_resolution['number_to'] - dian_resolution['number_next'] < remaining_numbers or days < remaining_days:
+                    if dian_resolution['number_to'] - dian_resolution[
+                        'number_next'] < remaining_numbers or days < remaining_days:
                         pos.not_has_valid_dian = True
                     if dian_resolution['number_next'] > dian_resolution['number_to']:
                         spent = True
                     if spent:
-                        pass # This is when the resolution it's spent and we keep generating numbers
+                        pass  # This is when the resolution it's spent and we keep generating numbers
 
     not_has_valid_dian = fields.Boolean(compute='_get_has_valid_dian_info', default=False)
     sequence_refund_id = fields.Many2one('ir.sequence', 'Refund Order IDs Sequence', readonly=True,
-                                  help="This sequence is automatically created by Odoo but you can change it "\
-                                  "to customize the reference numbers of your orders.", copy=False)
+                                         help="This sequence is automatically created by Odoo but you can change it " \
+                                              "to customize the reference numbers of your orders.", copy=False)
 
     @api.model
     def create(self, values):
@@ -451,31 +472,129 @@ class PosConfig(models.Model):
 
         return super(PosConfig, self).create(values)
 
-class pos_session(models.Model):
 
+class pos_session(models.Model):
     _inherit = 'pos.session'
 
-    taxes_description = fields.Html('taxes Description', compute = 'compute_taxes_description')
-    refund_description = fields.Html('Refund Description', compute = 'compute_refund_description')
-    amount_change = fields.Float('Change', compute = 'compute_amount_change')
+    taxes_description = fields.Html('taxes Description', compute='compute_taxes_description')
+    refund_description = fields.Html('Refund Description', compute='compute_refund_description')
+    amount_change = fields.Float('Change', compute='compute_amount_change')
     mac = fields.Char('MAC')
     macpc = get_mac()
+
+    @api.multi
+    def _confirm_orders(self):
+        res = super(pos_session, self)._confirm_orders()
+        if res:
+
+            if self.order_ids:
+
+                aml_model = self.env['account.move.line']
+                for order in self.order_ids[0]:
+
+                    aml_conci = {}
+
+                    currency = False
+
+                    aml_sales = []
+                    aml_refound = []
+
+                    for aml in order.account_move.line_ids:
+                        if aml.account_id.reconcile and not aml.full_reconcile_id:
+                            if not currency and aml.currency_id.id:
+                                currency = aml.currency_id.id
+
+                            if aml.debit > 0:
+                                aml_sales.append(aml.id)
+                            if aml.credit > 0:
+                                aml_refound.append(aml.id)
+
+                    for aml in order.account_move.line_ids:
+                        if aml.account_id.reconcile and not aml.full_reconcile_id:
+                            if not currency and aml.currency_id.id:
+                                currency = aml.currency_id.id
+
+                            _logger.info("Posibles")
+                            _logger.info(aml)
+                            _logger.info(aml.credit)
+                            _logger.info(aml.debit)
+                            _logger.info(aml.partner_id)
+
+                            _type = False
+                            not_in_ids = []
+                            if aml.id in aml_sales:
+                                _type = 'sales'
+                                not_in_ids = aml_refound
+
+                            if aml.id in aml_refound:
+                                _type = 'refound'
+                                not_in_ids = aml_sales
+
+                            aml_partner_id = aml.partner_id.id if aml.partner_id else False
+
+                            condition = [('account_id', '=', aml.account_id.id), ('full_reconcile_id', '=', False),
+                                         ('ref', '=', aml.ref), ('id', 'not in', [aml.id] + not_in_ids)]
+
+                            # Ventas que tienen cliente
+                            search_1 = condition
+                            search_1.append(('partner_id', '=', aml_partner_id))
+                            if _type == 'sales':
+                                search_1.append(('name', 'not like', '-DEV'))
+                            else:
+                                search_1.append(('name', 'ilike', '-DEV'))
+
+                            total_credit = 0
+                            total_debit = 0
+
+                            # _logger.info("lineas")
+                            _ids = []
+                            search_1 = aml_model.search(condition)
+                            for result in search_1:
+                                _ids.append(result.id)
+                                # _logger.info( result )
+                                # _logger.info( result.credit )
+                                # _logger.info( result.debit )
+                                # _logger.info( result.name )
+
+                                total_credit += result.credit
+                                total_debit += result.debit
+
+                            _logger.info("total")
+                            _logger.info(total_credit - total_debit)
+
+                            # _logger.info("busqueda")
+                            # _logger.info( search_1 )
+
+                            if search_1:
+                                move_lines = aml_model.browse([aml.id] + _ids)
+
+                                move_lines.with_context(skip_full_reconcile_check='amount_currency_excluded',
+                                                        manual_full_reconcile_currency=currency).reconcile()
+                                move_lines_filtered = move_lines.filtered(lambda aml: not aml.reconciled)
+                                if move_lines_filtered:
+                                    move_lines_filtered.with_context(skip_full_reconcile_check='amount_currency_only',
+                                                                     manual_full_reconcile_currency=currency).reconcile()
+                                move_lines.compute_full_after_batch_reconcile()
+
+        # raise UserError(_('error'))
+
+        return res
 
     @api.model
     def create(self, values):
         macpc = get_mac()
-        values.update({'mac' : macpc})
+        values.update({'mac': macpc})
 
         res = super(pos_session, self).create(values)
 
         if res:
             pass
-            #self.val_metodos_pago_ids( res )
+            # self.val_metodos_pago_ids( res )
 
-        return res 
+        return res
 
-    def number_format( self, currency_id, amount ):
-        return formatLang(self.env, amount, currency_obj = currency_id, digits=0 ).replace(",", ".")
+    def number_format(self, currency_id, amount):
+        return formatLang(self.env, amount, currency_obj=currency_id, digits=0).replace(",", ".")
 
     @api.one
     def first_orden(self):
@@ -489,8 +608,9 @@ class pos_session(models.Model):
                     break
                 else:
                     i = i - 1
-        
-        return _order_first         
+
+        return _order_first
+
     @api.one
     def ultima_orden(self):
         res = {}
@@ -504,8 +624,8 @@ class pos_session(models.Model):
                     break
                 else:
                     i = i + 1
-        
-        return _order_end                    
+
+        return _order_end
 
     @api.one
     def compute_amount_change(self):
@@ -516,14 +636,14 @@ class pos_session(models.Model):
         if self.order_ids:
             for order in self.order_ids:
                 if order.type != 'out_refund':
-                    for change  in order.statement_ids:
-                        if change.amount < 0:  
-                            _change = _change + change.amount           
+                    for change in order.statement_ids:
+                        if change.amount < 0:
+                            _change = _change + change.amount
 
-        #html = """
-        #<div style="float: left;margin-right: 20px;"><strong>Amount Change : </strong></div><div><span>%s</span></div>
-        #""" % (self.number_format(currency_id, _change))
-        self.amount_change = _change    
+                            # html = """
+        # <div style="float: left;margin-right: 20px;"><strong>Amount Change : </strong></div><div><span>%s</span></div>
+        # """ % (self.number_format(currency_id, _change))
+        self.amount_change = _change
 
     @api.one
     def compute_taxes_description(self):
@@ -539,15 +659,17 @@ class pos_session(models.Model):
 
                         for line in order.lines:
                             _id_tax = line.tax_ids_after_fiscal_position.id
-                            
-                            if line.tax_ids_after_fiscal_position.price_include: 
-                                discount_line = round((((line.price_unit / (1 + (line.tax_ids_after_fiscal_position.amount /100))) * line.qty) * line.discount)/100 , 0)
+
+                            if line.tax_ids_after_fiscal_position.price_include:
+                                discount_line = round((((line.price_unit / (1 + (
+                                            line.tax_ids_after_fiscal_position.amount / 100))) * line.qty) * line.discount) / 100,
+                                                      0)
                             else:
-                                discount_line = round(((line.price_unit  * line.qty) * line.discount)/100 , 0)
+                                discount_line = round(((line.price_unit * line.qty) * line.discount) / 100, 0)
                             subtotal = line.price_subtotal
                             tax_line = line.price_subtotal_incl - line.price_subtotal
                             total = subtotal + tax_line
-                            
+
                             if _id_tax in res:
                                 data = res[_id_tax]
                                 discount_line = data.get('discount_line') + discount_line
@@ -556,27 +678,26 @@ class pos_session(models.Model):
                                 total = data.get('total') + total
 
                                 res[_id_tax] = {
-                                    'id' : _id_tax,
-                                    'name' : line.tax_ids_after_fiscal_position.name,
-                                    'subtotal' : subtotal,
-                                    'discount_line' : discount_line,
-                                    'tax_line' : tax_line,
-                                    'total' : total
+                                    'id': _id_tax,
+                                    'name': line.tax_ids_after_fiscal_position.name,
+                                    'subtotal': subtotal,
+                                    'discount_line': discount_line,
+                                    'tax_line': tax_line,
+                                    'total': total
                                 }
 
                             else:
                                 res[_id_tax] = {
-                                    'id' : _id_tax,
-                                    'name' : line.tax_ids_after_fiscal_position.name,
-                                    'subtotal' : subtotal,                                
-                                    'discount_line' : discount_line,
-                                    'tax_line' : tax_line,
-                                    'total' : total
+                                    'id': _id_tax,
+                                    'name': line.tax_ids_after_fiscal_position.name,
+                                    'subtotal': subtotal,
+                                    'discount_line': discount_line,
+                                    'tax_line': tax_line,
+                                    'total': total
                                 }
 
         html = ''
         for result in res:
-
             html += """
             <div><h4><strong>%s </strong><span>%s</span></h4></div>
             <div style="float: left;margin-right: 20px;"><strong>%s :</strong></div><div><span>$ %s</span></div>
@@ -585,14 +706,17 @@ class pos_session(models.Model):
             <div style="float: left;margin-right: 20px;"><strong>%s : </strong></div><div><span>$ %s</span></div>
             <div style="margin-bottom: 10px;float: left;margin-right: 20px;"><strong>Total : </strong>
             </div><div><span>$ %s</span></div>""" % (_('Sales POS - Tax'), res[result].get('name'), _('Sales'),
-                                             self.number_format(currency_id, res[result].get('subtotal') + res[result].get('discount_line')), _('Discount'),
-                                             self.number_format(currency_id, res[result].get('discount_line')), _('Subtotal'),
-                                             self.number_format(currency_id, res[result].get('subtotal')), _('Tax iva'),
-                                             self.number_format(currency_id, res[result].get('tax_line')),
-                                             self.number_format(currency_id, res[result].get('total')))
-        
+                                                     self.number_format(currency_id,
+                                                                        res[result].get('subtotal') + res[result].get(
+                                                                            'discount_line')), _('Discount'),
+                                                     self.number_format(currency_id, res[result].get('discount_line')),
+                                                     _('Subtotal'),
+                                                     self.number_format(currency_id, res[result].get('subtotal')),
+                                                     _('Tax iva'),
+                                                     self.number_format(currency_id, res[result].get('tax_line')),
+                                                     self.number_format(currency_id, res[result].get('total')))
+
         self.taxes_description = html
-        
 
     @api.one
     def compute_refund_description(self):
@@ -607,11 +731,10 @@ class pos_session(models.Model):
                     if order.lines:
                         for line in order.lines:
                             _id_tax = line.tax_ids_after_fiscal_position.id
-                            
+
                             subtotal_dev = line.price_subtotal
                             tax_line_dev = line.price_subtotal_incl - line.price_subtotal
                             total_dev = subtotal_dev + tax_line_dev
-                            
 
                             if _id_tax in resul:
                                 data = resul[_id_tax]
@@ -620,23 +743,22 @@ class pos_session(models.Model):
                                 total_dev = data.get('total') + total_dev
 
                                 resul[_id_tax] = {
-                                    'id' : _id_tax,
-                                    'name' : line.tax_ids_after_fiscal_position.name,
-                                    'subtotal' : subtotal_dev,
-                                    'tax_line' : tax_line_dev,
-                                    'total' : total_dev
+                                    'id': _id_tax,
+                                    'name': line.tax_ids_after_fiscal_position.name,
+                                    'subtotal': subtotal_dev,
+                                    'tax_line': tax_line_dev,
+                                    'total': total_dev
                                 }
 
                             else:
                                 resul[_id_tax] = {
-                                    'id' : _id_tax,
-                                    'name' : line.tax_ids_after_fiscal_position.name,
-                                    'subtotal' : subtotal_dev,
-                                    'tax_line' : tax_line_dev,
-                                    'total' : total_dev
+                                    'id': _id_tax,
+                                    'name': line.tax_ids_after_fiscal_position.name,
+                                    'subtotal': subtotal_dev,
+                                    'tax_line': tax_line_dev,
+                                    'total': total_dev
                                 }
 
-        
         html_dev = ''
         for resultado in resul:
             html_dev += """
@@ -647,164 +769,43 @@ class pos_session(models.Model):
             <div style="float: left;margin-right: 20px;"><strong>%s : </strong></div><div><span>$ %s</span></div>
             <div style="margin-bottom: 10px;float: left;margin-right: 20px;"><strong>Total : </strong>
             </div><div><span>$ %s</span></div>""" % (_('Devoluciones POS - Tax'), resul[resultado].get('name'),
-                                             _('Number Refunds'), n , _('Devoluciones'),
-                                             self.number_format(currency_id, resul[resultado].get('subtotal')),
-                                             _('Subtotal'),self.number_format(currency_id, resul[resultado].get('subtotal')), _('Refund Tax iva'),
-                                             self.number_format(currency_id, resul[resultado].get('tax_line')),
-                                             self.number_format(currency_id, resul[resultado].get('total')))
+                                                     _('Number Refunds'), n, _('Devoluciones'),
+                                                     self.number_format(currency_id, resul[resultado].get('subtotal')),
+                                                     _('Subtotal'),
+                                                     self.number_format(currency_id, resul[resultado].get('subtotal')),
+                                                     _('Refund Tax iva'),
+                                                     self.number_format(currency_id, resul[resultado].get('tax_line')),
+                                                     self.number_format(currency_id, resul[resultado].get('total')))
         self.refund_description = html_dev
+
 
 class account_cashbox_bank_statement(models.Model):
     _name = 'account.bank.statement.cashbox'
     _inherit = 'account.bank.statement.cashbox'
 
     @api.model
-    def default_get(self, vals):   
-
+    def default_get(self, vals):
         result = super(account_cashbox_bank_statement, self).default_get(vals)
 
         _cashbox_lines_ids = []
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 100000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 50000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 20000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 10000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 5000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 2000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 1000,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 500,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 200,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 100,'number' : 0,'subtotal' : 0}) )
-        _cashbox_lines_ids.append( (0,0,{'coin_value' : 50,'number' : 0,'subtotal' : 0}) )
-
-        
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 100000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 50000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 20000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 10000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 5000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 2000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 1000, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 500, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 200, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 100, 'number': 0, 'subtotal': 0}))
+        _cashbox_lines_ids.append((0, 0, {'coin_value': 50, 'number': 0, 'subtotal': 0}))
 
         result.update({
-            'cashbox_lines_ids' : _cashbox_lines_ids
+            'cashbox_lines_ids': _cashbox_lines_ids
         })
 
-        
         return result
 
-class inherit_report_pos_order(models.Model):
-    _name = 'report.pos.order'
-    _inherit = 'report.pos.order'
-
-    costo_total = fields.Float('Costo Total', readonly=True)
-    costo_promedio = fields.Float('Costo Promedio', readonly=True)
-    rentabilidad = fields.Float('Rentabilidad', readonly=True)
-    margen_precio = fields.Float('Margen Precio', readonly=True)
-    margen_costo = fields.Float('Margen Costo', readonly=True)
-    subtotalmargen = fields.Float('Total Sin Iva', readonly=True)
-
-    @api.model
-    def read_group(self, domain, fields, groupby, offset=0, limit=None, orderby=False, lazy=True):
-
-        new_res = []
-
-        res = super(inherit_report_pos_order, self).read_group(domain, fields, groupby, offset=offset, limit=limit, orderby=orderby, lazy=lazy)    
-
-
-        for record in res:
-
-            costo_promedio = record.get('costo_promedio')
-            price_total = record.get('price_total')
-            margen_precio = record.get('rentabilidad')
-            margen_costo = record.get('margen_costo')
-
-            if costo_promedio == None or margen_precio == None or margen_costo == None:
-                new_res.append( record )
-                continue
-
-            product = record.get('product_qty', 1)
-            venta = record.get('subtotalmargen', 1)
-            costo = record.get('costo_total', 1)
-
-            """if product <= 0:
-                                                    record.update({
-                                                        'costo_total' : 0,                    
-                                                        'costo_promedio' : 0,
-                                                        'margen_precio' : 0,
-                                                        'margen_costo' : 0,
-                                                        'rentabilidad' : 0,
-                                                        'price_total' : 0
-                                                    })
-                                    
-                                                    new_res.append( record )
-                                                    continue"""
-
-            margen_precio = 0
-            if venta != 0:
-                margen_precio =  (record.get('rentabilidad') / venta) * 100
-
-            costo_promedio = 0
-            if product != 0:
-                costo_promedio = (record.get('costo_promedio') / product)
-
-            margen_costo = 0
-            if costo != 0:
-                margen_costo = (record.get('rentabilidad') / costo) * 100   
-
-
-            record.update({
-                'costo_promedio' : costo_promedio,
-                'margen_precio' : margen_precio,
-                'margen_costo' : margen_costo
-            })
-
-            new_res.append( record )
-        return new_res
-
-    @api.model_cr
-    def init(self):
-        tools.drop_view_if_exists(self._cr, 'report_pos_order')
-        self._cr.execute("""
-            CREATE OR REPLACE VIEW report_pos_order AS (
-                SELECT
-                    MIN(l.id) AS id,
-                    COUNT(*) AS nbr_lines,
-                    s.date_order AS date,
-                    SUM(l.qty) AS product_qty,
-                    SUM(l.qty * l.price_unit) AS price_sub_total,
-                    SUM((l.qty * l.price_unit) * (100 - l.discount) / 100) AS price_total,
-                    SUM((l.qty * l.price_unit) * (l.discount / 100)) AS total_discount,
-                    (SUM(l.qty*l.price_unit)/SUM(l.qty * u.factor))::decimal AS average_price,
-                    SUM(cast(to_char(date_trunc('day',s.date_order) - date_trunc('day',s.create_date),'DD') AS INT)) AS delay_validation,
-                    s.id as order_id,
-                    s.partner_id AS partner_id,
-                    s.state AS state,
-                    s.user_id AS user_id,
-                    s.location_id AS location_id,
-                    s.company_id AS company_id,
-                    s.sale_journal AS journal_id,
-                    l.product_id AS product_id,
-                    pt.categ_id AS product_categ_id,
-                    p.product_tmpl_id,
-                    ps.config_id,
-                    pt.pos_categ_id,
-                    pc.stock_location_id,
-                    s.pricelist_id,
-                    s.session_id,
-                    s.invoice_id IS NOT NULL AS invoiced
-                FROM pos_order_line AS l
-                    LEFT JOIN pos_order s ON (s.id=l.order_id)
-                    LEFT JOIN product_product p ON (l.product_id=p.id)
-                    LEFT JOIN product_template pt ON (p.product_tmpl_id=pt.id)
-                    LEFT JOIN product_uom u ON (u.id=pt.uom_id)
-                    LEFT JOIN pos_session ps ON (s.session_id=ps.id)
-                    LEFT JOIN pos_config pc ON (ps.config_id=pc.id)
-                GROUP BY
-                    s.id, s.date_order, s.partner_id,s.state, pt.categ_id,
-                    s.user_id, s.location_id, s.company_id, s.sale_journal,
-                    s.pricelist_id, s.invoice_id, s.create_date, s.session_id,
-                    l.product_id,
-                    pt.categ_id, pt.pos_categ_id,
-                    p.product_tmpl_id,
-                    ps.config_id,
-                    pc.stock_location_id
-                HAVING
-                    SUM(l.qty * u.factor) != 0
-            )
-        """)
 
 
 
